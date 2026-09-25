@@ -8,10 +8,14 @@ WORKDIR /src
 COPY CbrRatesGateway.sln ./
 COPY src/CbrRatesGateway.Api/CbrRatesGateway.Api.csproj src/CbrRatesGateway.Api/
 COPY tests/CbrRatesGateway.Tests/CbrRatesGateway.Tests.csproj tests/CbrRatesGateway.Tests/
-RUN dotnet restore CbrRatesGateway.sln
+# Кэш NuGet живёт в кэше BuildKit между сборками — пакеты не скачиваются заново каждый раз.
+# Монтируется во все шаги, которым нужны пакеты (restore/build/test/publish).
+RUN --mount=type=cache,id=cbr-nuget,target=/root/.nuget/packages \
+    dotnet restore CbrRatesGateway.sln
 
 COPY . .
-RUN dotnet build CbrRatesGateway.sln -c Release --no-restore
+RUN --mount=type=cache,id=cbr-nuget,target=/root/.nuget/packages \
+    dotnet build CbrRatesGateway.sln -c Release --no-restore
 
 # ---------- test ----------
 # Если хотя бы один тест упадёт, dotnet test вернёт ненулевой код и docker build остановится.
@@ -19,7 +23,8 @@ RUN dotnet build CbrRatesGateway.sln -c Release --no-restore
 # повторять их внутри docker build не нужно. При ручной сборке тесты запускаются по умолчанию.
 FROM build AS test
 ARG RUN_TESTS=true
-RUN if [ "$RUN_TESTS" = "true" ]; then \
+RUN --mount=type=cache,id=cbr-nuget,target=/root/.nuget/packages \
+    if [ "$RUN_TESTS" = "true" ]; then \
       dotnet test CbrRatesGateway.sln -c Release --no-build --verbosity normal; \
     else \
       echo "Тесты пропущены (RUN_TESTS=$RUN_TESTS)"; \
@@ -29,7 +34,8 @@ RUN if [ "$RUN_TESTS" = "true" ]; then \
 # Наследуется от стадии test: BuildKit собирает только стадии, от которых зависит итоговый образ,
 # поэтому без этой зависимости тесты были бы пропущены.
 FROM test AS publish
-RUN dotnet publish src/CbrRatesGateway.Api/CbrRatesGateway.Api.csproj \
+RUN --mount=type=cache,id=cbr-nuget,target=/root/.nuget/packages \
+    dotnet publish src/CbrRatesGateway.Api/CbrRatesGateway.Api.csproj \
       -c Release -o /app/publish --no-build /p:UseAppHost=false
 
 # ---------- runtime ----------

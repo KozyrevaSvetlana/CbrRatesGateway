@@ -103,6 +103,8 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [InlineData("?code=1234")]
     [InlineData("?date=25.09.2026")]
     [InlineData("?date=1990-01-01")]
+    [InlineData("?date=2026-09-27")]
+    [InlineData("?date=2099-01-01")]
     public async Task Get_InvalidParameters_Returns400(string query)
     {
         var client = CreateClient(CbrReturningSample());

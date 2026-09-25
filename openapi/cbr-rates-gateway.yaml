@@ -37,7 +37,9 @@ paths:
         - name: date
           in: query
           required: false
-          description: Дата курса (ISO 8601, `yyyy-MM-dd`). Не ранее 1992-07-01.
+          description: |
+            Дата курса (ISO 8601, `yyyy-MM-dd`). Допустимый диапазон — с 1992-07-01
+            по завтрашний день (по московскому времени): ЦБ публикует курс не более чем на день вперёд.
           schema:
             type: string
             format: date
@@ -75,7 +77,7 @@ paths:
         "204":
           description: Запрошенная валюта отсутствует в курсах ЦБ на указанную дату (тело ответа пустое).
         "400":
-          description: Некорректные параметры запроса.
+          description: Некорректные параметры запроса (формат даты или кода, дата вне допустимого диапазона).
           content:
             application/problem+json:
               schema:

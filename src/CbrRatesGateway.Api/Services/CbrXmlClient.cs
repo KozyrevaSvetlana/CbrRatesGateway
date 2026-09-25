@@ -2,6 +2,8 @@ using System.Globalization;
 using CbrRatesGateway.Api.Models;
 using CbrRatesGateway.Api.Options;
 using Microsoft.Extensions.Options;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 namespace CbrRatesGateway.Api.Services;
 
@@ -40,7 +42,9 @@ public sealed class CbrXmlClient : ICbrClient
         }
         catch (CbrException e)
         {
-            _logger.LogError(e, "Ошибка при обработке ответа ЦБ на {Date}: {Uri}", date, requestUri);
+            // Здесь только контекст (дата, URL) на уровне Warning.
+            // Ошибку уровня Error пишет CbrExceptionHandler — иначе каждый сбой попадал бы в лог дважды.
+            _logger.LogWarning(e, "Ошибка при обработке ответа ЦБ на {Date}: {Uri}", date, requestUri);
             throw;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -48,13 +52,22 @@ public sealed class CbrXmlClient : ICbrClient
             _logger.LogInformation("Запрос курсов ЦБ на {Date}: {Uri} был отменен.", date, requestUri);
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsTransportFailure(ex))
         {
-            _logger.LogError(ex, "Не удалось получить данные с сайта Банка России на {Date}: {Uri}", date, requestUri);
-            // HttpRequestException, таймауты Polly/HttpClient и т.п.
+            _logger.LogWarning(ex, "Не удалось получить данные с сайта Банка России на {Date}: {Uri}", date, requestUri);
             throw new CbrUnavailableException("Не удалось получить данные с сайта Банка России.", ex);
         }
+        // Прочие исключения (NullReferenceException и т.п.) — это баги, а не недоступность ЦБ:
+        // пробрасываем как есть, чтобы получить 500 и не маскировать их под 502.
     }
+
+    /// <summary>Сетевые сбои и срабатывания resilience-пайплайна (таймаут, открытый circuit breaker).</summary>
+    private static bool IsTransportFailure(Exception ex) =>
+        ex is HttpRequestException
+            or IOException
+            or TimeoutRejectedException
+            or BrokenCircuitException
+            or OperationCanceledException; // таймаут самого HttpClient (токен клиента не отменён — это отсеяно выше)
 
     internal string BuildRequestUri(DateOnly date) =>
         $"{_options.DailyRatesPath}?date_req={date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)}";

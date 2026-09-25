@@ -2,6 +2,7 @@ using CbrRatesGateway.Api.Controllers;
 using CbrRatesGateway.Api.Models;
 using CbrRatesGateway.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace CbrRatesGateway.Tests;
@@ -10,7 +11,10 @@ public class CurrencyRatesControllerTests
 {
     private readonly Mock<ICurrencyRatesService> _service = new();
 
-    private CurrencyRatesController CreateController() => new(_service.Object);
+    // 25.09.2026 10:00 UTC = 13:00 МСК
+    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 25, 10, 0, 0, TimeSpan.Zero));
+
+    private CurrencyRatesController CreateController() => new(_service.Object, _time);
 
     [Fact]
     public async Task GetRates_Found_Returns200WithBody()
@@ -44,5 +48,28 @@ public class CurrencyRatesControllerTests
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.IsType<ValidationProblemDetails>(badRequest.Value);
         _service.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(2026, 9, 27)]   // послезавтра
+    [InlineData(2099, 1, 1)]
+    public async Task GetRates_DateAfterTomorrow_Returns400(int y, int m, int d)
+    {
+        var result = await CreateController().GetRates(new DateOnly(y, m, d), null, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        _service.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetRates_Tomorrow_IsAllowed()
+    {
+        var tomorrow = new DateOnly(2026, 9, 26);
+        _service.Setup(s => s.GetRatesAsync(tomorrow, null, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new CurrencyRatesResponse(tomorrow, tomorrow, "cbr.ru", CbrTestData.Sample(tomorrow).Rates));
+
+        var result = await CreateController().GetRates(tomorrow, null, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
     }
 }

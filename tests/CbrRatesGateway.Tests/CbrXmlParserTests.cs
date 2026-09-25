@@ -36,6 +36,36 @@ public class CbrXmlParserTests
         Assert.Equal(0.571234m, jpy.UnitRate);
     }
 
+    [Theory]
+    [InlineData("6,80237E-05", "0.0000680237")]
+    [InlineData("6.80237E-05", "0.0000680237")]
+    [InlineData("1,5e+2", "150")]
+    [InlineData("83,5211", "83.5211")]
+    [InlineData(" 97,1045 ", "97.1045")]
+    public void ParseDecimal_SupportsCommaAndExponent(string input, string expected)
+    {
+        Assert.Equal(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture),
+                     CbrXmlParser.ParseDecimal(input));
+    }
+
+    [Fact]
+    public async Task ParseAsync_VunitRateInExponentialNotation_Parses()
+    {
+        const string xml =
+            """
+            <?xml version="1.0" encoding="windows-1251"?>
+            <ValCurs Date="31.01.2026" name="Foreign Currency Market">
+              <Valute ID="R01150"><NumCode>704</NumCode><CharCode>VND</CharCode><Nominal>10000</Nominal><Name>Донгов</Name><Value>30,5411</Value><VunitRate>3,05411E-03</VunitRate></Valute>
+            </ValCurs>
+            """;
+        await using var stream = CbrTestData.ToWindows1251Stream(xml);
+
+        var result = await CbrXmlParser.ParseAsync(stream);
+
+        var vnd = Assert.Single(result.Rates);
+        Assert.Equal(0.00305411m, vnd.UnitRate);
+    }
+
     [Fact]
     public async Task ParseAsync_EmptyValCurs_ReturnsNoRates()
     {

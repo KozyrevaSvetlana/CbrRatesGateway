@@ -2,6 +2,7 @@ using System.Net;
 using CbrRatesGateway.Api.Options;
 using CbrRatesGateway.Api.Services;
 using Microsoft.Extensions.Logging.Abstractions;
+using Polly.Timeout;
 
 namespace CbrRatesGateway.Tests;
 
@@ -63,5 +64,23 @@ public class CbrXmlClientTests
         var ex = await Assert.ThrowsAsync<CbrUnavailableException>(
             () => client.GetDailyRatesAsync(new DateOnly(2026, 9, 25), CancellationToken.None));
         Assert.IsType<HttpRequestException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task GetDailyRatesAsync_ResilienceTimeout_ThrowsUnavailable()
+    {
+        var client = CreateClient(new StubHandler(_ => throw new TimeoutRejectedException()));
+
+        await Assert.ThrowsAsync<CbrUnavailableException>(
+            () => client.GetDailyRatesAsync(new DateOnly(2026, 9, 25), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetDailyRatesAsync_UnexpectedBug_IsNotMaskedAsUnavailable()
+    {
+        var client = CreateClient(new StubHandler(_ => throw new InvalidOperationException("bug")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.GetDailyRatesAsync(new DateOnly(2026, 9, 25), CancellationToken.None));
     }
 }

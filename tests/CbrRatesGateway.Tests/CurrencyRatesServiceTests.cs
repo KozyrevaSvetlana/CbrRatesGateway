@@ -18,9 +18,12 @@ public class CurrencyRatesServiceTests
     // 25.09.2026 10:00 UTC = 13:00 МСК
     private FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 25, 10, 0, 0, TimeSpan.Zero));
 
+    private readonly RatesRequestCoalescer _coalescer = new();
+
     private CurrencyRatesService CreateService() => new(
         _cbr.Object,
         _cache.Object,
+        _coalescer,
         _time,
         Microsoft.Extensions.Options.Options.Create(_cacheOptions),
         NullLogger<CurrencyRatesService>.Instance);
@@ -136,5 +139,56 @@ public class CurrencyRatesServiceTests
 
         await Assert.ThrowsAsync<CbrUnavailableException>(
             () => CreateService().GetRatesAsync(Today, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetRatesAsync_EmptyRatesFromCbr_NotCachedAndReturnsNull()
+    {
+        SetupCacheMiss();
+        _cbr.Setup(c => c.GetDailyRatesAsync(Today, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DailyRates(Today, Array.Empty<CurrencyRate>()));
+
+        var result = await CreateService().GetRatesAsync(Today, null, CancellationToken.None);
+
+        Assert.Null(result);
+        _cache.Verify(c => c.SetAsync(It.IsAny<DateOnly>(), It.IsAny<DailyRates>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetRatesAsync_ParallelRequestsOnCacheMiss_CallCbrOnce()
+    {
+        SetupCacheMiss();
+        var cbrResponse = new TaskCompletionSource<DailyRates>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _cbr.Setup(c => c.GetDailyRatesAsync(Today, It.IsAny<CancellationToken>())).Returns(cbrResponse.Task);
+
+        // 20 одновременных запросов, пока ЦБ «отвечает»
+        var requests = Enumerable.Range(0, 20)
+            .Select(i => CreateService().GetRatesAsync(Today, i % 2 == 0 ? "USD" : null, CancellationToken.None))
+            .ToArray();
+
+        cbrResponse.SetResult(CbrTestData.Sample(Today));
+        var results = await Task.WhenAll(requests);
+
+        Assert.All(results, r => Assert.NotNull(r));
+        _cbr.Verify(c => c.GetDailyRatesAsync(Today, It.IsAny<CancellationToken>()), Times.Once);
+        _cache.Verify(c => c.SetAsync(Today, It.IsAny<DailyRates>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetRatesAsync_ClientCancels_LoadContinuesForOthers()
+    {
+        SetupCacheMiss();
+        var cbrResponse = new TaskCompletionSource<DailyRates>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _cbr.Setup(c => c.GetDailyRatesAsync(Today, It.IsAny<CancellationToken>())).Returns(cbrResponse.Task);
+
+        using var firstClient = new CancellationTokenSource();
+        var first = CreateService().GetRatesAsync(Today, null, firstClient.Token);
+        var second = CreateService().GetRatesAsync(Today, null, CancellationToken.None);
+
+        firstClient.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+
+        cbrResponse.SetResult(CbrTestData.Sample(Today));
+        Assert.NotNull(await second);
     }
 }

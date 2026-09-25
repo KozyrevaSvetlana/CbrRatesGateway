@@ -8,11 +8,9 @@ public sealed class CurrencyRatesService : ICurrencyRatesService
 {
     public const string SourceName = "cbr.ru";
 
-    /// <summary>Москва живёт в UTC+3 без перехода на летнее время (с 2014 г.).</summary>
-    private static readonly TimeSpan MoscowOffset = TimeSpan.FromHours(3);
-
     private readonly ICbrClient _cbrClient;
     private readonly IRatesCache _cache;
+    private readonly RatesRequestCoalescer _coalescer;
     private readonly TimeProvider _timeProvider;
     private readonly RatesCacheOptions _cacheOptions;
     private readonly ILogger<CurrencyRatesService> _logger;
@@ -20,12 +18,14 @@ public sealed class CurrencyRatesService : ICurrencyRatesService
     public CurrencyRatesService(
         ICbrClient cbrClient,
         IRatesCache cache,
+        RatesRequestCoalescer coalescer,
         TimeProvider timeProvider,
         IOptions<RatesCacheOptions> cacheOptions,
         ILogger<CurrencyRatesService> logger)
     {
         _cbrClient = cbrClient;
         _cache = cache;
+        _coalescer = coalescer;
         _timeProvider = timeProvider;
         _cacheOptions = cacheOptions.Value;
         _logger = logger;
@@ -33,17 +33,11 @@ public sealed class CurrencyRatesService : ICurrencyRatesService
 
     public async Task<CurrencyRatesResponse?> GetRatesAsync(DateOnly? date, string? currencyCode, CancellationToken cancellationToken)
     {
-        var today = GetMoscowToday();
+        var today = MoscowClock.Today(_timeProvider);
         var requestedDate = date ?? today;
 
-        var daily = await _cache.GetAsync(requestedDate, cancellationToken);
-        if (daily is null)
-        {
-            daily = await _cbrClient.GetDailyRatesAsync(requestedDate, cancellationToken);
-            var ttl = ChooseTtl(requestedDate, daily.Date, today);
-            await _cache.SetAsync(requestedDate, daily, ttl, cancellationToken);
-            _logger.LogDebug("Курсы на {Date} получены из ЦБ и закэшированы на {Ttl}", requestedDate, ttl);
-        }
+        var daily = await _cache.GetAsync(requestedDate, cancellationToken)
+                    ?? await _coalescer.RunAsync(requestedDate, () => LoadAndCacheAsync(requestedDate, today), cancellationToken);
 
         IReadOnlyList<CurrencyRate> rates = daily.Rates;
         if (!string.IsNullOrWhiteSpace(currencyCode))
@@ -59,8 +53,26 @@ public sealed class CurrencyRatesService : ICurrencyRatesService
             : new CurrencyRatesResponse(requestedDate, daily.Date, SourceName, rates);
     }
 
-    internal DateOnly GetMoscowToday() =>
-        DateOnly.FromDateTime(_timeProvider.GetUtcNow().ToOffset(MoscowOffset).DateTime);
+    /// <summary>
+    /// Загрузка из ЦБ и запись в кэш. Выполняется одна на дату, результат получают все ожидающие,
+    /// поэтому токен отмены конкретного клиента сюда не передаётся (время ограничивает resilience-пайплайн HttpClient).
+    /// </summary>
+    private async Task<DailyRates> LoadAndCacheAsync(DateOnly requestedDate, DateOnly today)
+    {
+        var daily = await _cbrClient.GetDailyRatesAsync(requestedDate, CancellationToken.None);
+
+        if (daily.Rates.Count == 0)
+        {
+            // Пустой ответ может быть временным сбоем на стороне ЦБ — не кэшируем, чтобы не отдавать 204 неделю.
+            _logger.LogWarning("ЦБ вернул пустой список курсов на {Date}; результат не кэшируется", requestedDate);
+            return daily;
+        }
+
+        var ttl = ChooseTtl(requestedDate, daily.Date, today);
+        await _cache.SetAsync(requestedDate, daily, ttl, CancellationToken.None);
+        _logger.LogDebug("Курсы на {Date} получены из ЦБ и закэшированы на {Ttl}", requestedDate, ttl);
+        return daily;
+    }
 
     /// <summary>
     /// Курсы на прошедшую/текущую дату, а также на будущую дату, если ЦБ их уже опубликовал, — окончательные.

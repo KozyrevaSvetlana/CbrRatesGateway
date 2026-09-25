@@ -37,6 +37,7 @@ else
 }
 
 builder.Services.AddSingleton<IRatesCache, DistributedRatesCache>();
+builder.Services.AddSingleton<RatesRequestCoalescer>();   // общий на весь процесс: один запрос в ЦБ на дату
 builder.Services.AddScoped<ICurrencyRatesService, CurrencyRatesService>();
 
 // ---------- Web API ----------
@@ -63,6 +64,13 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+if (string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    app.Logger.LogWarning(
+        "Строка подключения ConnectionStrings:Redis не задана — используется кэш в памяти процесса. " +
+        "Для продакшена задайте переменную окружения ConnectionStrings__Redis.");
+}
 
 app.UseExceptionHandler();
 

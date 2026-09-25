@@ -14,7 +14,7 @@ pipeline {
 
     parameters {
         booleanParam(name: 'PUSH_IMAGE', defaultValue: false,
-                     description: 'Публиковать образ в registry (для main/release публикуется всегда)')
+                     description: 'Публиковать образ в registry (для main/master/release публикуется всегда)')
     }
 
     environment {
@@ -26,6 +26,8 @@ pipeline {
         SOLUTION             = 'CbrRatesGateway.sln'
         DOTNET_CLI_TELEMETRY_OPTOUT = '1'
         DOTNET_NOLOGO        = '1'
+        // BuildKit нужен Dockerfile'у (RUN --mount=type=cache для кэша NuGet)
+        DOCKER_BUILDKIT      = '1'
     }
 
     stages {
@@ -45,7 +47,9 @@ pipeline {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:8.0'
                     reuseNode true
-                    // HOME и кэш NuGet внутри workspace — контейнер запускается не от root
+                    // HOME и кэш NuGet внутри workspace — контейнер запускается не от root.
+                    // Папка .nuget не удаляется в cleanWs (см. post), поэтому restore в следующих сборках
+                    // берёт пакеты из кэша, а не качает их заново.
                     args '-e HOME=/tmp -e NUGET_PACKAGES=$WORKSPACE/.nuget/packages'
                 }
             }
@@ -81,6 +85,8 @@ pipeline {
 
         stage('Docker build') {
             // Тесты уже прошли в стадии 'Unit tests', поэтому внутри образа их не повторяем (RUN_TESTS=false)
+            // Сбои сети при скачивании базовых образов (TLS handshake timeout и т.п.) — повторяем до 3 раз
+            options { retry(3) }
             steps {
                 sh '''
                     docker build \
@@ -98,6 +104,7 @@ pipeline {
             when {
                 anyOf {
                     branch 'main'
+                    branch 'master'
                     branch pattern: 'release/.*', comparator: 'REGEXP'
                     expression { return params.PUSH_IMAGE }
                 }
@@ -111,7 +118,7 @@ pipeline {
                         docker push $REGISTRY/$IMAGE_NAME:$IMAGE_TAG
                     '''
                     script {
-                        if (env.BRANCH_NAME == 'main') {
+                        if (['main', 'master'].contains(env.BRANCH_NAME)) {
                             sh '''
                                 docker tag  $REGISTRY/$IMAGE_NAME:$IMAGE_TAG $REGISTRY/$IMAGE_NAME:latest
                                 docker push $REGISTRY/$IMAGE_NAME:latest
@@ -129,7 +136,11 @@ pipeline {
                 docker rmi $REGISTRY/$IMAGE_NAME:$IMAGE_TAG $REGISTRY/$IMAGE_NAME:latest 2>/dev/null || true
                 docker logout $REGISTRY 2>/dev/null || true
             '''
-            cleanWs()
+            // Чистим workspace, но оставляем кэш NuGet — иначе каждый restore качает все пакеты заново
+            cleanWs(deleteDirs: true, patterns: [
+                [pattern: '.nuget', type: 'EXCLUDE'],
+                [pattern: '.nuget/**', type: 'EXCLUDE']
+            ])
         }
         success {
             echo "Образ собран: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
