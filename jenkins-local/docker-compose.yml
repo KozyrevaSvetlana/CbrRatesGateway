@@ -1,0 +1,33 @@
+# Локальный стенд: Jenkins + Docker registry.
+# Запуск из папки jenkins-local:  docker compose up -d --build
+# Jenkins:  http://localhost:8081  (admin / admin)
+# Registry: http://localhost:5000/v2/_catalog
+services:
+  jenkins:
+    build: .
+    image: cbr-local-jenkins
+    container_name: cbr-jenkins
+    user: root                                   # доступ к docker.sock; только для локальной проверки
+    ports:
+      - "8081:8080"                              # 8080 оставляем для самого API
+    environment:
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=false
+        -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+      CASC_JENKINS_CONFIG: /casc/jenkins.yaml
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./casc:/casc:ro
+      - ..:/repo:ro                              # корень решения — Jenkins клонирует его как file:///repo
+    depends_on:
+      - registry
+
+  registry:
+    image: registry:2
+    container_name: cbr-registry
+    ports:
+      - "5000:5000"
+
+volumes:
+  jenkins_home:

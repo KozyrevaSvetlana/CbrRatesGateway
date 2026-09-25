@@ -1,0 +1,55 @@
+# Jenkins Configuration as Code: всё, что иначе пришлось бы настраивать руками в UI.
+jenkins:
+  systemMessage: "Локальный Jenkins для проверки пайплайна CbrRatesGateway"
+  numExecutors: 2
+  labelString: "docker"          # Jenkinsfile требует agent { label 'docker' }
+  mode: NORMAL
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "DOCKER_REGISTRY"   # подменяет registry.company.local в Jenkinsfile
+            value: "localhost:5000"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "docker-registry-credentials"   # тот же id, что в Jenkinsfile
+              description: "Локальный registry (без авторизации, значения любые)"
+              username: "local"
+              password: "local"
+
+jobs:
+  - script: >
+      multibranchPipelineJob('cbr-rates-gateway') {
+        displayName('CBR Rates Gateway')
+        branchSources {
+          git {
+            id('cbr-rates-gateway-local')
+            remote('file:///repo')
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
+          }
+        }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(5)
+          }
+        }
+      }

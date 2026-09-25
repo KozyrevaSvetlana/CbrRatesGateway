@@ -18,7 +18,9 @@ pipeline {
     }
 
     environment {
-        REGISTRY             = 'registry.company.local'          // адрес внутреннего Docker registry
+        // Адрес Docker registry. Можно переопределить глобальной переменной Jenkins DOCKER_REGISTRY
+        // (локальный стенд из jenkins-local/ выставляет localhost:5000).
+        REGISTRY             = "${env.DOCKER_REGISTRY ?: 'registry.company.local'}"
         REGISTRY_CREDENTIALS = 'docker-registry-credentials'     // id учётки в Jenkins Credentials
         IMAGE_NAME           = 'integration/cbr-rates-gateway'
         SOLUTION             = 'CbrRatesGateway.sln'
