@@ -1,0 +1,226 @@
+openapi: 3.0.3
+info:
+  title: CBR Rates Gateway
+  version: 1.0.0
+  description: |
+    Шлюз для внутренних систем организации, предоставляющий курсы валют,
+    установленные Банком России.
+
+    Источник данных — XML-сервис ЦБ «Ежедневные курсы валют»
+    (`https://www.cbr.ru/scripts/XML_daily.asp`). Ответы кэшируются в Redis:
+    ключ — запрошенная дата, значение — курсы всех валют на эту дату.
+servers:
+  - url: http://cbr-rates-gateway.internal:8080
+    description: Внутренний контур
+  - url: http://localhost:8080
+    description: Локальный запуск (docker compose)
+tags:
+  - name: CurrencyRates
+    description: Курсы валют ЦБ РФ
+  - name: Service
+    description: Служебные эндпоинты
+
+paths:
+  /api/v1/currency-rates:
+    get:
+      tags: [CurrencyRates]
+      operationId: getCurrencyRates
+      summary: Получить курсы валют на дату
+      description: |
+        Возвращает курсы валют Банка России.
+
+        * `date` не передана — используется текущая дата по московскому времени.
+        * `code` не передан — возвращаются курсы всех валют.
+        * Если на выходной/праздничный день ЦБ курс не устанавливал, в `ratesDate`
+          возвращается дата последнего установленного курса.
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Дата курса (ISO 8601, `yyyy-MM-dd`). Не ранее 1992-07-01.
+          schema:
+            type: string
+            format: date
+          example: "2026-09-25"
+        - name: code
+          in: query
+          required: false
+          description: Буквенный код валюты ISO 4217, регистр не важен.
+          schema:
+            type: string
+            pattern: "^[A-Za-z]{3}$"
+          example: USD
+      responses:
+        "200":
+          description: Курсы найдены.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrencyRatesResponse"
+              examples:
+                singleCurrency:
+                  summary: Запрос с кодом валюты
+                  value:
+                    requestedDate: "2026-09-25"
+                    ratesDate: "2026-09-25"
+                    source: cbr.ru
+                    rates:
+                      - id: R01235
+                        numCode: "840"
+                        charCode: USD
+                        nominal: 1
+                        name: Доллар США
+                        value: 83.5211
+                        unitRate: 83.5211
+        "204":
+          description: Запрошенная валюта отсутствует в курсах ЦБ на указанную дату (тело ответа пустое).
+        "400":
+          description: Некорректные параметры запроса.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ValidationProblemDetails"
+        "500":
+          description: Внутренняя ошибка сервиса.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "502":
+          description: Сайт Банка России недоступен или вернул некорректный ответ.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /health:
+    get:
+      tags: [Service]
+      operationId: getHealth
+      summary: Проверка работоспособности (liveness/readiness)
+      responses:
+        "200":
+          description: Сервис работает.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Healthy
+        "503":
+          description: Сервис неработоспособен.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Unhealthy
+
+components:
+  schemas:
+    CurrencyRatesResponse:
+      type: object
+      required: [requestedDate, ratesDate, source, rates]
+      properties:
+        requestedDate:
+          type: string
+          format: date
+          description: Дата из запроса (или текущая дата МСК).
+        ratesDate:
+          type: string
+          format: date
+          description: Дата, на которую ЦБ фактически установил курсы.
+        source:
+          type: string
+          description: Источник данных.
+          example: cbr.ru
+        rates:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CurrencyRate"
+
+    CurrencyRate:
+      type: object
+      required: [id, numCode, charCode, nominal, name, value, unitRate]
+      properties:
+        id:
+          type: string
+          description: Идентификатор валюты в справочнике ЦБ.
+          example: R01235
+        numCode:
+          type: string
+          description: Цифровой код ISO 4217.
+          example: "840"
+        charCode:
+          type: string
+          description: Буквенный код ISO 4217.
+          example: USD
+        nominal:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Номинал — количество единиц валюты, за которое указан курс.
+          example: 1
+        name:
+          type: string
+          description: Наименование валюты.
+          example: Доллар США
+        value:
+          type: number
+          format: decimal
+          description: Курс в рублях за `nominal` единиц валюты.
+          example: 83.5211
+        unitRate:
+          type: number
+          format: decimal
+          description: Курс в рублях за одну единицу валюты.
+          example: 83.5211
+
+    ProblemDetails:
+      type: object
+      description: Описание ошибки по RFC 7807 / RFC 9457.
+      properties:
+        type:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        status:
+          type: integer
+          format: int32
+          nullable: true
+        detail:
+          type: string
+          nullable: true
+        instance:
+          type: string
+          nullable: true
+        traceId:
+          type: string
+          nullable: true
+      additionalProperties: true
+      example:
+        type: https://tools.ietf.org/html/rfc9110#section-15.6.3
+        title: Сервис Банка России недоступен
+        status: 502
+        detail: Сайт ЦБ вернул HTTP 503.
+        traceId: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+
+    ValidationProblemDetails:
+      allOf:
+        - $ref: "#/components/schemas/ProblemDetails"
+        - type: object
+          properties:
+            errors:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+      example:
+        type: https://tools.ietf.org/html/rfc9110#section-15.5.1
+        title: One or more validation errors occurred.
+        status: 400
+        errors:
+          code:
+            - Код валюты должен состоять из трёх латинских букв (ISO 4217).

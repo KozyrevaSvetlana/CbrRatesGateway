@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/TestResults/
+**/.vs/
+**/.idea/
+**/*.user
+.nuget/
+.git/
+.gitignore
+Jenkinsfile
+docker-compose.yml
+README.md
+openapi/
