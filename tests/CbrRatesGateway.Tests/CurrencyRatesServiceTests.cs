@@ -18,7 +18,7 @@ public class CurrencyRatesServiceTests
     // 25.09.2026 10:00 UTC = 13:00 МСК
     private FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 25, 10, 0, 0, TimeSpan.Zero));
 
-    private readonly RatesRequestCoalescer _coalescer = new();
+    private readonly RatesRequestCoalescer _coalescer = new(NullLogger<RatesRequestCoalescer>.Instance);
 
     private CurrencyRatesService CreateService() => new(
         _cbr.Object,

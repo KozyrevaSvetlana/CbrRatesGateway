@@ -2,6 +2,7 @@ using CbrRatesGateway.Api.Controllers;
 using CbrRatesGateway.Api.Models;
 using CbrRatesGateway.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 
@@ -14,7 +15,7 @@ public class CurrencyRatesControllerTests
     // 25.09.2026 10:00 UTC = 13:00 МСК
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 25, 10, 0, 0, TimeSpan.Zero));
 
-    private CurrencyRatesController CreateController() => new(_service.Object, _time);
+    private CurrencyRatesController CreateController() => new(_service.Object, _time, NullLogger<CurrencyRatesController>.Instance);
 
     [Fact]
     public async Task GetRates_Found_Returns200WithBody()

@@ -2,6 +2,7 @@ using System.Reflection;
 using CbrRatesGateway.Api.Infrastructure;
 using CbrRatesGateway.Api.Options;
 using CbrRatesGateway.Api.Services;
+using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 
@@ -40,6 +41,19 @@ builder.Services.AddSingleton<IRatesCache, DistributedRatesCache>();
 builder.Services.AddSingleton<RatesRequestCoalescer>();   // общий на весь процесс: один запрос в ЦБ на дату
 builder.Services.AddScoped<ICurrencyRatesService, CurrencyRatesService>();
 
+// ---------- Логирование HTTP-запросов ----------
+// Одна строка на запрос: метод, путь, query, код ответа и длительность.
+// Уровень задаётся категорией Microsoft.AspNetCore.HttpLogging в appsettings.json.
+builder.Services.AddHttpLogging(options =>
+{
+    options.LoggingFields = HttpLoggingFields.RequestMethod
+                            | HttpLoggingFields.RequestPath
+                            | HttpLoggingFields.RequestQuery
+                            | HttpLoggingFields.ResponseStatusCode
+                            | HttpLoggingFields.Duration;
+    options.CombineLogs = true;
+});
+
 // ---------- Web API ----------
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
@@ -65,6 +79,19 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// ---------- Стартовая информация в лог: с какими настройками запущен сервис ----------
+var cbrOptions = app.Services.GetRequiredService<IOptions<CbrOptions>>().Value;
+var cacheOptions = app.Services.GetRequiredService<IOptions<RatesCacheOptions>>().Value;
+app.Logger.LogInformation(
+    "CBR Rates Gateway запускается: окружение {Environment}, ЦБ {CbrBaseUrl}{CbrPath}, кэш {CacheType}, " +
+    "TTL окончательных курсов {FinalTtl}, предварительных {PendingTtl}",
+    app.Environment.EnvironmentName,
+    cbrOptions.BaseUrl,
+    cbrOptions.DailyRatesPath,
+    string.IsNullOrWhiteSpace(redisConnectionString) ? "in-memory" : "Redis",
+    cacheOptions.FinalRatesTtl,
+    cacheOptions.PendingRatesTtl);
+
 if (string.IsNullOrWhiteSpace(redisConnectionString))
 {
     app.Logger.LogWarning(
@@ -72,6 +99,7 @@ if (string.IsNullOrWhiteSpace(redisConnectionString))
         "Для продакшена задайте переменную окружения ConnectionStrings__Redis.");
 }
 
+app.UseHttpLogging();
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled"))

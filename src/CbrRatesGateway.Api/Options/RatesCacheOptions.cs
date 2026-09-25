@@ -3,6 +3,7 @@ namespace CbrRatesGateway.Api.Options;
 /// <summary>Настройки кэширования курсов в Redis.</summary>
 public sealed class RatesCacheOptions
 {
+    /// <summary>Имя секции в appsettings.json.</summary>
     public const string SectionName = "RatesCache";
 
     /// <summary>Префикс ключей в Redis.</summary>

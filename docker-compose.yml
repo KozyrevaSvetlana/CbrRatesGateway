@@ -10,6 +10,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Redis: "redis:6379,abortConnect=false,connectTimeout=2000,syncTimeout=1000"
       Swagger__Enabled: "true"
+      # Логи в JSON (удобно для ELK/Loki) вместе со scope: RequestedDate, CurrencyCode, TraceId
+      Logging__Console__FormatterName: "json"
+      Logging__Console__FormatterOptions__IncludeScopes: "true"
     depends_on:
       - redis
 

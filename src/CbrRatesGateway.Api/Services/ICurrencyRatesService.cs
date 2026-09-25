@@ -2,6 +2,7 @@ using CbrRatesGateway.Api.Models;
 
 namespace CbrRatesGateway.Api.Services;
 
+/// <summary>Получение курсов валют ЦБ с учётом кэша и фильтра по коду валюты.</summary>
 public interface ICurrencyRatesService
 {
     /// <summary>

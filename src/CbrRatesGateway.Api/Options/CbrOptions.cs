@@ -3,6 +3,7 @@ namespace CbrRatesGateway.Api.Options;
 /// <summary>Настройки подключения к сайту Банка России.</summary>
 public sealed class CbrOptions
 {
+    /// <summary>Имя секции в appsettings.json.</summary>
     public const string SectionName = "Cbr";
 
     /// <summary>Базовый адрес сайта ЦБ.</summary>

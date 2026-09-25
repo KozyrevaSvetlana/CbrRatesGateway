@@ -1,5 +1,6 @@
 using CbrRatesGateway.Api.Models;
 using CbrRatesGateway.Api.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CbrRatesGateway.Tests;
 
@@ -10,7 +11,7 @@ public class RatesRequestCoalescerTests
     [Fact]
     public async Task RunAsync_SameDateInParallel_FactoryCalledOnce()
     {
-        var sut = new RatesRequestCoalescer();
+        var sut = new RatesRequestCoalescer(NullLogger<RatesRequestCoalescer>.Instance);
         var calls = 0;
         var gate = new TaskCompletionSource<DailyRates>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -34,7 +35,7 @@ public class RatesRequestCoalescerTests
     [Fact]
     public async Task RunAsync_AfterCompletion_NextCallStartsNewLoad()
     {
-        var sut = new RatesRequestCoalescer();
+        var sut = new RatesRequestCoalescer(NullLogger<RatesRequestCoalescer>.Instance);
         var calls = 0;
 
         Task<DailyRates> Factory()
@@ -53,7 +54,7 @@ public class RatesRequestCoalescerTests
     [Fact]
     public async Task RunAsync_FactoryFails_ErrorIsNotStuck()
     {
-        var sut = new RatesRequestCoalescer();
+        var sut = new RatesRequestCoalescer(NullLogger<RatesRequestCoalescer>.Instance);
 
         await Assert.ThrowsAsync<CbrUnavailableException>(() =>
             sut.RunAsync(Date, () => throw new CbrUnavailableException("down"), CancellationToken.None));
@@ -67,7 +68,7 @@ public class RatesRequestCoalescerTests
     [Fact]
     public async Task RunAsync_DifferentDates_LoadIndependently()
     {
-        var sut = new RatesRequestCoalescer();
+        var sut = new RatesRequestCoalescer(NullLogger<RatesRequestCoalescer>.Instance);
         var calls = 0;
 
         Task<DailyRates> Factory()
