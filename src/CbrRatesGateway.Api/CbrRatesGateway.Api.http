@@ -1,0 +1,34 @@
+# Запросы к CBR Rates Gateway. В Visual Studio 2022 / Rider / VS Code (REST Client)
+# рядом с каждым запросом появляется кнопка «Send request».
+# Контейнер слушает 8080; при запуске из Visual Studio (F5) поменяйте на http://localhost:5080
+@host = http://localhost:8080
+
+### Проверка, что сервис жив -> 200 Healthy
+GET {{host}}/health
+
+### Все валюты на сегодня -> 200
+GET {{host}}/api/v1/currency-rates
+
+### Одна валюта на сегодня -> 200
+GET {{host}}/api/v1/currency-rates?code=USD
+
+### Валюта на дату, регистр кода не важен -> 200
+GET {{host}}/api/v1/currency-rates?date=2026-09-01&code=eur
+
+### Дата, где у ЦБ курсы в экспоненциальной записи -> 200
+GET {{host}}/api/v1/currency-rates?date=2026-01-31
+
+### Выходной день: ratesDate будет датой последнего установленного курса -> 200
+GET {{host}}/api/v1/currency-rates?date=2026-09-06&code=USD
+
+### Неизвестная валюта -> 204
+GET {{host}}/api/v1/currency-rates?code=XYZ
+
+### Неверный код валюты -> 400
+GET {{host}}/api/v1/currency-rates?code=US
+
+### Неверный формат даты -> 400
+GET {{host}}/api/v1/currency-rates?date=25.09.2026
+
+### Дата раньше начала истории ЦБ -> 400
+GET {{host}}/api/v1/currency-rates?date=1990-01-01
